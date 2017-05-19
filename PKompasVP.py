@@ -16,6 +16,66 @@ def get_kompas_api7():
     const = gencache.EnsureModule("{75C9F5D0-B5B8-4526-8681-9903C567D2ED}", 0, 1, 0).constants
     return module, api, const
 
+def get_kompas_api5():
+    module = gencache.EnsureModule("{0422828C-F174-495E-AC5D-D31014DBBE87}", 0, 1, 0)
+    api = module.KompasObject(Dispatch("Kompas.Application.5")._oleobj_.QueryInterface(module.KompasObject.CLSID,
+                                                                                           pythoncom.IID_IDispatch))
+    const = gencache.EnsureModule("{75C9F5D0-B5B8-4526-8681-9903C567D2ED}", 0, 1, 0)
+    return module, api, const.constants
+
+
+def get_stamp_spec(i, api_5, stamp, const_5):
+    result = ""
+    stamp.ksColumnNumber(i)
+    arr = stamp.ksGetStampColumnText(i)[0]
+    arrpLineText = api_5.GetDynamicArray(3) # TEXT_LINE_ARR = 3
+
+    itemLineText = api_5.GetParamStruct(const_5.ko_TextLineParam) #
+    if itemLineText:
+        itemLineText.Init
+    else:
+        print("Not itemLineText")
+    count = arr.ksGetArrayCount()
+
+    if count > 0:
+        for j in range(count):
+            arr.ksGetArrayItem( j, itemLineText )
+            arrpTextItem = itemLineText.GetTextItemArr()
+            item = api_5.GetParamStruct(const_5.ko_TextItemParam)
+            if not item or not arrpTextItem:
+                break
+            item.Init()
+            count2 = arrpTextItem.ksGetArrayCount()
+
+            for k in range(count2):
+                arrpTextItem.ksGetArrayItem( k, item )
+            result = item.s
+            arrpTextItem.ksDeleteArray()
+        arrpLineText.ksDeleteArray()
+    arr.ksDeleteArray()
+    return result
+
+def get_stamp_specification(filename):
+    """ Читаем данные из основной надписи спецификации """
+    characteristic = {}
+    module_5, api_5, const_5 = get_kompas_api5()
+    if api_5.SpcDocument().ksOpenDocument(filename, 3):
+        spec_doc = api_5.SpcActiveDocument()
+        stamp = spec_doc.GetStampEx(1)
+        if stamp and stamp.ksOpenStamp():
+            characteristic["name_stamp"] = get_stamp_spec(1, api_5, stamp, const_5).replace("\n", " ")
+            characteristic["decimal_stamp"] = get_stamp_spec(2, api_5, stamp, const_5)
+            characteristic["applicable_stamp"] = get_stamp_spec(25, api_5, stamp, const_5)
+            characteristic["develop_stamp"] = get_stamp_spec(110, api_5, stamp, const_5)
+            characteristic["verify_stamp"] = get_stamp_spec(111, api_5, stamp, const_5)
+            characteristic["validate_stamp"] = get_stamp_spec(115, api_5, stamp, const_5)
+
+            stamp.ksCloseStamp()
+        else:
+            print("Not open stamp")
+    spec_doc.ksCloseDocument()
+    return characteristic
+
 
 # Функция проверки, запущена-ли программа КОМПАС 3D
 def is_running():
@@ -32,8 +92,9 @@ def amount_sheet(doc7):
         sheets["A" + str(format.Format)] += 1 * format.FormatMultiplicity
     return sheets
 
-def get_iteames(doc7):
-    if doc7.
+# работа со спецификацией
+#def get_iteames(doc7):
+#    if doc7.
 
 # Прочитаем основную надпись чертежа
 def stamp(doc7):
@@ -41,10 +102,10 @@ def stamp(doc7):
         style_filename = os.path.basename(doc7.LayoutSheets.Item(sheet).LayoutLibraryFileName)
         style_number = int(doc7.LayoutSheets.Item(sheet).LayoutStyleNumber)
 
-        if style_filename in ['graphic.lyt', 'Graphic.lyt'] and style_number == 1:
+        if style_number == 2:
+            iter = doc7.CreateSpcIterator(0,0,0)
             stamp = doc7.LayoutSheets.Item(sheet).Stamp
-            return {"Scale": re.findall(r"\d+:\d+", stamp.Text(6).Str)[0],
-                    "Designer": stamp.Text(110).Str}
+            return {"Designer": stamp.Text(110).Str}
 
     return 'Неопределенный стиль оформления'
 
@@ -71,8 +132,9 @@ def count_demand(doc7, module7):
 def count_dimension(doc7, module7):
     IKompasDocument2D = doc7._oleobj_.QueryInterface(module7.NamesToIIDMap['ISpecificationDocument'],
                                                      pythoncom.IID_IDispatch)
-    doc2D = module7.IKompasDocument2D(IKompasDocument2D)
-    views = doc2D.ViewsAndLayersManager.Views
+    doc2D = module7.ISpecificationDocument(IKompasDocument2D)
+    #views = doc2D.ViewsAndLayersManager.Views
+    doc2D.CreateSpcIterator(0,0,0)
 
     count_dim = 0
     for i in range(views.Count):
@@ -154,9 +216,10 @@ if __name__ == "__main__":
     root = Tk()
     root.withdraw()  # Скрываем основное окно и сразу окно выбора файлов
 
-    filenames = askopenfilenames(title="Выберети чертежи деталей", filetypes=[('Компас 3D', '*.cdw'), ])
+    filenames = askopenfilenames(title="Выберети чертежи деталей", filetypes=[('Компас 3D', '*.spw'), ])
 
-    print_to_excel(parse_design_documents(filenames))
+    get_stamp_specification(filenames[0])
+    #print_to_excel(parse_design_documents(filenames))
 
     root.destroy()  # Уничтожаем основное окно
 root.mainloop()
